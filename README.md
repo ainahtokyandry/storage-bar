@@ -1,121 +1,107 @@
-# StorageBar
+# storage-bar
 
-A tiny macOS menu bar app that keeps your startup disk's free space visible at all times.
-
-StorageBar sits in the menu bar and shows the available and total capacity of the boot volume
-in the form `free / total`, for example:
+The **storage section** of [MacBar](https://github.com/ainahtokyandry/mac-setup): free space on
+the startup disk, in the menu bar, as `free / total`.
 
 ```
-142.5 GB / 494.4 GB
+118 GB / 494 GB
 ```
 
-Clicking the menu bar item opens a small menu with a fuller breakdown:
+It used to be a menu bar app of its own. It still builds as one, but its normal home is
+alongside the other sections behind a single menu bar item, so that a handful of small tools
+cost one slot in the menu bar instead of one each:
 
-- **Total** - total capacity of the volume mounted at `/`
-- **Used** - used space, with the percentage of the disk consumed
-- **Available** - free space
-- **Refresh Now** - force an immediate update (shortcut: `r` while the menu is open)
-- **Open Storage Settings...** - jump straight to the Storage pane in System Settings
-- **Quit StorageBar**
+```
+⌾ 118 GB · 42·61·18% · ◷ Mon 08:00
+```
+
+In the dropdown the section contributes its own block:
+
+- **Available** — free space, coloured once it drops below 10% and again below 5%
+- **Used** — used space, with the percentage of the disk consumed
+- **Total** — capacity of the volume mounted at `/`
+- **Open Storage Settings…** — jump straight to the Storage pane in System Settings
 
 ### Details
 
 - Free space is read via `volumeAvailableCapacityForImportantUsage`, the same measure Finder
   uses, so the number accounts for purgeable space and matches what macOS reports elsewhere.
-- The reading refreshes automatically every 60 seconds.
-- The app runs as an accessory (`LSUIElement`), so it has no Dock icon and no application
-  window - only the menu bar item.
+- The reading refreshes every 60 seconds, and whenever the menu is opened.
 - Sizes are formatted with `ByteCountFormatter` in file style (base 1000, matching Finder).
-- Written in Swift against AppKit, in a single source file (`main.swift`). No third-party
-  dependencies.
+- Swift against AppKit. No third-party dependencies.
+
+## How it fits together
+
+`StorageSection.swift` is the whole of it: one class conforming to `BarSection`, the protocol
+the MacBar host defines. The host owns the status item, the dropdown, the colours and the date
+formatting; this repository owns nothing but the reading.
+
+```
+StorageSection.swift   the section: one BarSection, polling, its block of the menu
+main.swift             a standalone entry point — Host.run(sections: [StorageSection()])
+build.sh               builds StorageBar.app against a MacBar host checkout
+Info.plist             bundle metadata for the standalone app
+```
+
+There is deliberately **no copy of the host here**. `build.sh` compiles against a checkout of
+[mac-setup](https://github.com/ainahtokyandry/mac-setup), found in `MACBAR_HOST`, or beside
+this repository, or under `$HOME/Projects`. One definition of the contract means this section
+cannot drift away from the app that hosts it.
 
 ## Requirements
 
 - macOS 13 or later
-- Xcode Command Line Tools (provides `swiftc` and `codesign`)
+- Xcode Command Line Tools (provides `swiftc` and `codesign`):
+  ```sh
+  xcode-select --install
+  ```
+- A checkout of [mac-setup](https://github.com/ainahtokyandry/mac-setup), which holds the host
 
-If the command line tools are not installed yet:
+## Usual install
 
-```bash
-xcode-select --install
+You do not normally build this repository directly. MacBar's installer clones it, together with
+the other sections, and builds the one app:
+
+```sh
+zsh -c "$(curl -fsSL https://raw.githubusercontent.com/ainahtokyandry/mac-setup/main/install.sh)"
 ```
 
-## Installation
+## Building it on its own
 
-The repository ships the source, not a prebuilt binary, so the app bundle is assembled locally.
+Useful when working on the section itself:
 
-### 1. Get the source
-
-```bash
-git clone <repository-url> StorageBar
-cd StorageBar
+```sh
+git clone https://github.com/ainahtokyandry/mac-setup.git ../mac-setup   # the host
+./build.sh --run
 ```
 
-### 2. Build the app bundle
+That yields `StorageBar.app` — one section, one menu bar item, no Dock icon. The readings are
+also available without the menu bar:
 
-```bash
-mkdir -p StorageBar.app/Contents/MacOS
-cp Info.plist StorageBar.app/Contents/Info.plist
-swiftc -O main.swift -o StorageBar.app/Contents/MacOS/StorageBar
-codesign --force --sign - StorageBar.app
+```sh
+./StorageBar.app/Contents/MacOS/StorageBar --print
 ```
 
-The `codesign` step signs the bundle ad hoc. It is required - an unsigned bundle will not
-launch on recent versions of macOS.
-
-### 3. Run it
-
-```bash
-open StorageBar.app
+```
+Storage
+  Available:  118 GB
+  Used:       376 GB (76%)
+  Total:      494 GB
 ```
 
-The reading appears in the menu bar immediately. Nothing else opens, since the app has no
-window and no Dock icon.
-
-### 4. Install it for everyday use (optional)
-
-Move the bundle into your Applications folder so it lives outside the checkout:
-
-```bash
-mv StorageBar.app /Applications/
-open /Applications/StorageBar.app
-```
-
-### 5. Launch at login (optional)
-
-Open **System Settings > General > Login Items & Extensions**, then under
-**Open at Login** press `+` and pick `StorageBar.app`.
-
-## Rebuilding after a change
-
-macOS keeps running the already-launched binary, so quit the app first, rebuild, re-sign, and
-relaunch:
-
-```bash
-pkill -x StorageBar
-swiftc -O main.swift -o StorageBar.app/Contents/MacOS/StorageBar
-codesign --force --sign - StorageBar.app
-open StorageBar.app
-```
-
-Skipping `codesign` after a rebuild leaves the bundle in a broken state, because replacing the
-executable invalidates the existing signature.
+Rebuilding is the same command; `build.sh` stops the running copy, rebuilds, and re-signs. The
+ad hoc `codesign` step is not optional — replacing the executable invalidates the existing
+signature, and an unsigned bundle will not launch on recent versions of macOS.
 
 ## Uninstalling
 
-```bash
+The standalone bundle is self-contained:
+
+```sh
 pkill -x StorageBar
 rm -rf /Applications/StorageBar.app
 ```
 
-If you added it as a login item, remove the entry in
-**System Settings > General > Login Items & Extensions** as well.
-
-## Project layout
-
-```
-main.swift    Entire application: status item, menu, and the 60 second refresh timer
-Info.plist    Bundle metadata (identifier, version, LSUIElement, minimum system version)
-```
-
-Build products (`StorageBar.app/` and the bare `StorageBar` executable) are not tracked.
+If you added it as a login item, remove that entry in **System Settings > General > Login Items
+& Extensions** as well. To remove MacBar instead, see
+[mac-setup](https://github.com/ainahtokyandry/mac-setup).
