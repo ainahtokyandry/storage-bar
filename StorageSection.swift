@@ -32,6 +32,12 @@ final class StorageSection: NSObject, BarSection {
         }
     }
 
+    /// Switched off in MacBar: stop reading the volume.
+    func deactivate() {
+        timer?.invalidate()
+        timer = nil
+    }
+
     func refresh(force: Bool) { read() }
 
     /// volumeAvailableCapacityForImportantUsage is the measure Finder uses, so
